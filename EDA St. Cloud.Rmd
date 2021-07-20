@@ -1,0 +1,1757 @@
+---
+title: "EDA St. Cloud"
+author: "Claude Haneum Lee, Hyesu Lee"
+date: "5/6/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(knitr)
+library(ggplot2)
+library(tidyverse)
+library(readxl)
+library(gghighlight)
+library(stringr)
+library(car)
+library(BSDA)
+library(DTK)
+library(coin)
+theme_set(theme_bw())
+IPUMSP <- read.csv("IPUMS Data/IPUMSP.csv")
+IPUMSPwt <- IPUMSP[rep(seq_len(nrow(IPUMSP)), IPUMSP$PERWT), ]
+IPUMSHH <- read.csv("IPUMS Data/IPUMSHH.csv")
+IPUMSHHwt <- IPUMSHH[rep(seq_len(nrow(IPUMSHH)), IPUMSHH$HHWT), ]
+LAUS <- read.csv("Business Stats/LAUS/LAUS_Cleaned.csv")
+OEWS <- read_csv("Business Stats/OEWS/OEWS_Cleaned.csv", 
+    col_types = cols(X1 = col_skip())) %>% 
+  rename(LOCQUO = 'LOC QUOTIENT')
+```
+
+# Results {.tabset}
+
+## Cleaning
+
+### IPUMS 
+
+```{r eval=FALSE, include=TRUE}
+### Select Variables
+IPUMS <- IPUMS0 %>% 
+  select(YEAR, STATEFIP, PUMA, METAREA, SERIAL, HHWT, REGION, STATEFIP, COUNTYFIP, DENSITY, CITY, CITYPOP, PUMA, PERWT,
+         HHTYPE, MORTAMT1, RENTGRS, HHINCOME, VALUEH, FAMSIZE, AGE, HCOVPUB,
+         SCHOOL, EDUC, EDUCD, DEGFIELD, DEGFIELDD, EMPSTAT, EMPSTATD, CLASSWKR, CLASSWKRD,
+         UHRSWORK, LOOKING, AVAILBLE, INCTOT, POVERTY, TRANTIME, RIDERS) %>% 
+  filter(YEAR != 2011 & (
+    
+    ## St. Cloud
+    (STATEFIP == 27 & PUMA == 900) |
+    ## Rochester
+    (STATEFIP == 27 & PUMA == 2500) |
+    ## Duluth
+    (STATEFIP == 27 & PUMA == 500) |
+    ## Mankato
+    (STATEFIP == 27 & PUMA == 2200) |
+    ## Fargo
+    (STATEFIP == 38 & PUMA == 500) |
+    ## Grand Forks
+    (STATEFIP == 38 & PUMA == 400) |
+    ## Eau Claire
+    (STATEFIP == 55 & PUMA == 55103) |
+    ## La Crosse
+    (STATEFIP == 55 & PUMA == 900) |
+    ## Dubuque
+    (STATEFIP == 19 & PUMA == 700) |
+    ## Cedar Rapids
+    (STATEFIP == 19 & PUMA == 1000)
+  )) %>% 
+  mutate(CITYNAME = case_when(
+    (STATEFIP == 27 & PUMA == 900) ~ "St. Cloud, MN",
+    (STATEFIP == 27 & PUMA == 2500) ~ "Rochester, MN",
+    (STATEFIP == 27 & PUMA == 500) ~ "Duluth, MN",
+    (STATEFIP == 27 & PUMA == 2200) ~ "Mankato, MN",
+    (STATEFIP == 38 & PUMA == 500) ~ "Fargo, ND",
+    (STATEFIP == 38 & PUMA == 400) ~ "Grand Forks, ND",
+    (STATEFIP == 55 & PUMA == 55103) ~ "Eau Claire, WI",
+    (STATEFIP == 55 & PUMA == 900) ~ "La Crosse, WI",
+    (STATEFIP == 19 & PUMA == 700) ~ "Dubuque, IA",
+    (STATEFIP == 19 & PUMA == 1000) ~ "Cedar Rapids, IA"
+  ))
+
+save(IPUMS, file = "IPUMS Data/IPUMS_Cleaned.RData")
+write.csv(IPUMS, "IPUMS Data/IPUMS_Cleaned.csv")
+```
+
+```{r eval=FALSE, include=TRUE}
+IPUMS <- read.csv("IPUMS Data/IPUMS_Cleaned.csv")
+IPUMSP <- IPUMS %>%
+  mutate(
+    HHINCOME  = ifelse(HHINCOME != 9999999,     HHINCOME,     NA),
+    INCTOT    = ifelse(INCTOT != 9999999,       INCTOT,       NA),
+    MORTAMT1  = ifelse(!MORTAMT1 %in% c(0, 1),  MORTAMT1,     NA),
+    RENTGRS   = ifelse(RENTGRS != 0,            RENTGRS,      NA),
+    TRANTIME  = ifelse(TRANTIME != 0,           TRANTIME,     NA),
+    VALUEH    = ifelse(!VALUEH %in% c(0, 9999998, 9999999), VALUEH, NA),
+    UHRSWORK  = ifelse(!UHRSWORK %in% c(0),     UHRSWORK,     NA),       
+    AVAILABLE = ifelse(!AVAILBLE %in% c(0, 5),  ifelse(AVAILBLE == 4, 1, 0), NA),
+    AVAILLOOK = ifelse((!AVAILBLE %in% c(0, 5) & !LOOKING %in% c(0, 3)), ifelse((AVAILBLE == 4)&(LOOKING == 2), 1, 0), NA),
+    EDUC      = ifelse(EDUC != 0,               EDUC,         NA),
+    EDUC2     = case_when(
+      (EDUC %in% c(1, 2, 3, 4, 5))   ~ "Not Finished HS",
+      (EDUC %in% c(6))               ~ "HS",
+      (EDUC %in% c(7, 8, 9, 10, 11)) ~ "Some College"),
+    HS        = ifelse(EDUC2 == "HS", 1, 0),
+    COL       = ifelse(EDUC2 == "Some College", 1, 0)
+    )
+
+IPUMSHH <- IPUMSP[!duplicated(IPUMSP$SERIAL),] %>% 
+  select(CITYNAME, YEAR, HHWT, HHINCOME, FAMSIZE, MORTAMT1, RENTGRS, VALUEH)
+
+IPUMSP <- IPUMSP %>% 
+  select(CITYNAME, YEAR, PERWT, INCTOT, TRANTIME, AGE, UHRSWORK, AVAILABLE, AVAILLOOK, HS, COL)
+
+write.csv(IPUMSP, "IPUMSP.csv")
+write.csv(IPUMSHH, "IPUMSHH.csv")
+```
+
+
+### LAUS
+
+```{r eval=FALSE, include=TRUE}
+library(readxl)
+LAUS <- read_excel("Business Stats/LAUS/LAUS ssamatab1.xlsx", 
+     na = "(n)", skip = 2)
+LAUS0 <- LAUS %>% 
+  filter(
+    Year %in% rep(2012:2020),
+    Area %in% c("St. Cloud, MN MSA", "Rochester, MN MSA", "Duluth, MN-WI MSA", "Mankato-North Mankato, MN MSA",
+                "Fargo, ND-MN MSA", "Grand Forks, ND-MN MSA", "Eau Claire, WI MSA", 
+                "La Crosse-Onalaska, WI-MN MSA", "Dubuque, IA MSA", "Cedar Rapids, IA MSA")
+    )
+
+write.csv(LAUS0, "LAUS_Cleaned.csv")
+```
+
+
+### OEWS
+
+```{r eval = FALSE}
+### 2019
+MSA_M2019 <- read_excel("Business Stats/OEWS/MSA_M2019_dl.xlsx",
+                        sheet = "All May 2019 Data", na = c("*", "**")) %>% 
+  mutate(YEAR = 2019,
+         h_mean = ifelse(h_mean == "#", 100, h_mean),
+         a_mean = ifelse(a_mean == "#", 208000, a_mean)) %>%
+  select(YEAR, area_title, occ_title, o_group, tot_emp, 
+         jobs_1000, loc_quotient, h_mean, a_mean) %>% 
+  rename(AREA_NAME = area_title, 
+         OCC_TITLE = occ_title, 
+         OCC_GROUP = o_group, 
+         TOT_EMP = tot_emp, 
+         JOBS_1000 = jobs_1000, 
+         'LOC QUOTIENT' = loc_quotient, 
+         H_MEAN = h_mean, 
+         A_MEAN = a_mean)
+MSA_M2019$H_MEAN <- as.numeric(MSA_M2019$H_MEAN)
+MSA_M2019$A_MEAN <- as.numeric(MSA_M2019$A_MEAN)
+
+### Sample Selection (All Occupation Total Employment (40000, 150000))
+rangeCities <- MSA_M2019 %>% 
+  filter(OCC_TITLE == "All Occupations" & (TOT_EMP <= 150000 & TOT_EMP>= 40000)) %>% 
+  select(AREA_NAME)
+rangeCities <- rangeCities$AREA_NAME
+
+### 2019
+MSA_M2019 <- MSA_M2019 %>% 
+  filter(AREA_NAME %in% rangeCities)
+
+
+### 2012
+MSA_M2012_dl_1_AK_IN <- read_excel("Business Stats/OEWS/MSA_M2012_dl_1_AK_IN.xls", na = c("*", "**"))
+MSA_M2012_dl_2_KS_NY <- read_excel("Business Stats/OEWS/MSA_M2012_dl_2_KS_NY.xls", na = c("*", "**"))
+MSA_M2012_dl_3_OH_WY <- read_excel("Business Stats/OEWS/MSA_M2012_dl_3_OH_WY.xls", na = c("*", "**"))
+
+MSA_M2012 <- rbind(MSA_M2012_dl_1_AK_IN,
+                   MSA_M2012_dl_2_KS_NY,
+                   MSA_M2012_dl_3_OH_WY) %>% 
+  filter(AREA_NAME %in% rangeCities) %>% 
+  mutate(YEAR = 2012,
+         H_MEAN = ifelse(H_MEAN == "#", 90, H_MEAN),
+         A_MEAN = ifelse(A_MEAN == "#", 187200, A_MEAN)) %>% 
+  select(YEAR, AREA_NAME, OCC_TITLE, OCC_GROUP, TOT_EMP, 
+         JOBS_1000, 'LOC QUOTIENT', H_MEAN, A_MEAN) 
+MSA_M2012$H_MEAN <- as.numeric(MSA_M2012$H_MEAN)
+MSA_M2012$A_MEAN <- as.numeric(MSA_M2012$A_MEAN)
+  
+rm(MSA_M2012_dl_1_AK_IN,MSA_M2012_dl_2_KS_NY,MSA_M2012_dl_3_OH_WY)
+
+### 2013
+MSA_M2013_dl_1_AK_IN <- read_excel("Business Stats/OEWS/MSA_M2013_dl_1_AK_IN.xls", na = c("*", "**"))
+MSA_M2013_dl_2_KS_NY <- read_excel("Business Stats/OEWS/MSA_M2013_dl_2_KS_NY.xls", na = c("*", "**"))
+MSA_M2013_dl_3_OH_WY <- read_excel("Business Stats/OEWS/MSA_M2013_dl_3_OH_WY.xls", na = c("*", "**"))
+
+MSA_M2013 <- rbind(MSA_M2013_dl_1_AK_IN,
+                   MSA_M2013_dl_2_KS_NY,
+                   MSA_M2013_dl_3_OH_WY) %>%
+  filter(AREA_NAME %in% rangeCities) %>%
+  mutate(YEAR = 2013,
+         H_MEAN = ifelse(H_MEAN == "#", 90, H_MEAN),
+         A_MEAN = ifelse(A_MEAN == "#", 187200, A_MEAN)) %>%
+  select(YEAR, AREA_NAME, OCC_TITLE, OCC_GROUP, TOT_EMP, 
+         JOBS_1000, 'LOC QUOTIENT', H_MEAN, A_MEAN)
+MSA_M2013$H_MEAN <- as.numeric(MSA_M2013$H_MEAN)
+MSA_M2013$A_MEAN <- as.numeric(MSA_M2013$A_MEAN)
+
+rm(MSA_M2013_dl_1_AK_IN,MSA_M2013_dl_2_KS_NY,MSA_M2013_dl_3_OH_WY)
+
+### 2014
+MSA_M2014 <- read_excel("Business Stats/OEWS/MSA_M2014_dl.xlsx", na = c("*", "**")) %>% 
+  filter(AREA_NAME %in% rangeCities) %>%
+  mutate(YEAR = 2014,
+         H_MEAN = ifelse(H_MEAN == "#", 90, H_MEAN),
+         A_MEAN = ifelse(A_MEAN == "#", 187200, A_MEAN)) %>%
+  select(YEAR, AREA_NAME, OCC_TITLE, OCC_GROUP, TOT_EMP, 
+         JOBS_1000, 'LOC QUOTIENT', H_MEAN, A_MEAN)
+MSA_M2014$H_MEAN <- as.numeric(MSA_M2014$H_MEAN)
+MSA_M2014$A_MEAN <- as.numeric(MSA_M2014$A_MEAN)
+
+### 2015
+MSA_M2015 <- read_excel("Business Stats/OEWS/MSA_M2015_dl.xlsx", na = c("*", "**")) %>% 
+  filter(AREA_NAME %in% rangeCities) %>%
+  mutate(YEAR = 2015,
+         H_MEAN = ifelse(H_MEAN == "#", 90, H_MEAN),
+         A_MEAN = ifelse(A_MEAN == "#", 187200, A_MEAN)) %>%
+  select(YEAR, AREA_NAME, OCC_TITLE, OCC_GROUP, TOT_EMP, 
+         JOBS_1000, 'LOC QUOTIENT', H_MEAN, A_MEAN)
+MSA_M2015$H_MEAN <- as.numeric(MSA_M2015$H_MEAN)
+MSA_M2015$A_MEAN <- as.numeric(MSA_M2015$A_MEAN)
+
+### 2016
+MSA_M2016 <- read_excel("Business Stats/OEWS/MSA_M2016_dl.xlsx", na = c("*", "**")) %>%
+  filter(AREA_NAME %in% rangeCities) %>%
+  mutate(YEAR = 2016,
+         H_MEAN = ifelse(H_MEAN == "#", 100, H_MEAN),
+         A_MEAN = ifelse(A_MEAN == "#", 208000, A_MEAN)) %>%
+  select(YEAR, AREA_NAME, OCC_TITLE, OCC_GROUP, TOT_EMP, 
+         JOBS_1000, 'LOC QUOTIENT', H_MEAN, A_MEAN)
+MSA_M2016$H_MEAN <- as.numeric(MSA_M2016$H_MEAN)
+MSA_M2016$A_MEAN <- as.numeric(MSA_M2016$A_MEAN)
+
+### 2017
+MSA_M2017 <- read_excel("Business Stats/OEWS/MSA_M2017_dl.xlsx", na = c("*", "**")) %>% 
+  filter(AREA_NAME %in% rangeCities) %>%
+  mutate(YEAR = 2017,
+         H_MEAN = ifelse(H_MEAN == "#", 100, H_MEAN),
+         A_MEAN = ifelse(A_MEAN == "#", 208000, A_MEAN)) %>%
+  select(YEAR, AREA_NAME, OCC_TITLE, OCC_GROUP, TOT_EMP, 
+         JOBS_1000, 'LOC QUOTIENT', H_MEAN, A_MEAN)
+MSA_M2017$H_MEAN <- as.numeric(MSA_M2017$H_MEAN)
+MSA_M2017$A_MEAN <- as.numeric(MSA_M2017$A_MEAN)
+
+### 2018
+MSA_M2018 <- read_excel("Business Stats/OEWS/MSA_M2018_dl.xlsx", na = c("*", "**")) %>% 
+  filter(AREA_NAME %in% rangeCities) %>%
+  mutate(YEAR = 2018,
+         H_MEAN = ifelse(H_MEAN == "#", 100, H_MEAN),
+         A_MEAN = ifelse(A_MEAN == "#", 208000, A_MEAN)) %>%
+  select(YEAR, AREA_NAME, OCC_TITLE, OCC_GROUP, TOT_EMP, 
+         JOBS_1000, 'LOC QUOTIENT', H_MEAN, A_MEAN)
+MSA_M2018$H_MEAN <- as.numeric(MSA_M2018$H_MEAN)
+MSA_M2018$A_MEAN <- as.numeric(MSA_M2018$A_MEAN)
+
+### 2020
+MSA_M2020 <- read_excel("Business Stats/OEWS/MSA_M2020_dl.xlsx", 
+                        sheet = "MSA_M2020_dl", na = c("*", "**")) %>% 
+  mutate(YEAR = 2020,
+         H_MEAN = ifelse(H_MEAN == "#", 100, H_MEAN),
+         A_MEAN = ifelse(A_MEAN == "#", 208000, A_MEAN)) %>%
+  select(YEAR, AREA_TITLE, OCC_TITLE, O_GROUP, TOT_EMP, 
+         JOBS_1000, LOC_QUOTIENT, H_MEAN, A_MEAN) %>% 
+  rename(AREA_NAME = AREA_TITLE,
+         OCC_GROUP = O_GROUP, 
+         'LOC QUOTIENT' = LOC_QUOTIENT) %>% 
+  filter(AREA_NAME %in% rangeCities)
+MSA_M2020$H_MEAN <- as.numeric(MSA_M2020$H_MEAN)
+MSA_M2020$A_MEAN <- as.numeric(MSA_M2020$A_MEAN)
+
+
+OEWS_Cleaned <- rbind(MSA_M2012, MSA_M2013, MSA_M2014, MSA_M2015, MSA_M2016, 
+                      MSA_M2017, MSA_M2018, MSA_M2019, MSA_M2020)
+rm(MSA_M2012, MSA_M2013, MSA_M2014, MSA_M2015, MSA_M2016, 
+   MSA_M2017, MSA_M2018, MSA_M2019, MSA_M2020)
+
+write.csv(OEWS_Cleaned, "OEWS_Cleaned.csv")
+
+```
+
+
+## IPUMS
+
+### Income
+
+```{r}
+## Household Income
+leveneTest(HHINCOME ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2017))
+leveneTest(HHINCOME ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2018))
+leveneTest(HHINCOME ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2019))
+
+a <- filter(IPUMSHHwt, YEAR == 2017)
+b <- as.data.frame(DTK.test(x = a$HHINCOME, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+a <- filter(IPUMSHHwt, YEAR == 2018)
+b <- as.data.frame(DTK.test(x = a$HHINCOME, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+a <- filter(IPUMSHHwt, YEAR == 2019)
+b <- as.data.frame(DTK.test(x = a$HHINCOME, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+kable(left_join(t2019, t2018, by = "City") %>% 
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019))
+rm(a, b, City, t2017, t2018, t2019)
+
+
+## Personal Income
+leveneTest(INCTOT ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2017))
+leveneTest(INCTOT ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2018))
+leveneTest(INCTOT ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2019))
+
+a <- filter(IPUMSPwt, YEAR == 2017)
+b <- as.data.frame(DTK.test(x = a$INCTOT, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+a <- filter(IPUMSPwt, YEAR == 2018)
+b <- as.data.frame(DTK.test(x = a$INCTOT, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+a <- filter(IPUMSPwt, YEAR == 2019)
+b <- as.data.frame(DTK.test(x = a$INCTOT, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+kable(left_join(t2019, t2018, by = "City") %>% 
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019))
+rm(a, b, City, t2017, t2018, t2019)
+```
+
+
+### Average Family Size
+
+```{r}
+leveneTest(FAMSIZE ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2017))
+leveneTest(FAMSIZE ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2018))
+leveneTest(FAMSIZE ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2019))
+
+b <- as.data.frame(TukeyHSD(aov(FAMSIZE ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2017)))$CITYNAME)
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'lwr' < 0 & b$'upr' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+b <- as.data.frame(TukeyHSD(aov(FAMSIZE ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2018)))$CITYNAME)
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'lwr' < 0 & b$'upr' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+b <- as.data.frame(TukeyHSD(aov(FAMSIZE ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2019)))$CITYNAME)
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'lwr' < 0 & b$'upr' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+kable(left_join(t2019, t2018, by = "City") %>% 
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019))
+rm(b, City, t2017, t2018, t2019)
+```
+
+
+### Average First Mortgage Payment
+
+```{r}
+leveneTest(MORTAMT1 ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2017))
+leveneTest(MORTAMT1 ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2018))
+leveneTest(MORTAMT1 ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2019))
+
+a <- filter(IPUMSHHwt, YEAR == 2017)
+b <- as.data.frame(DTK.test(x = a$MORTAMT1, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+a <- filter(IPUMSHHwt, YEAR == 2018)
+b <- as.data.frame(DTK.test(x = a$MORTAMT1, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+a <- filter(IPUMSHHwt, YEAR == 2019)
+b <- as.data.frame(DTK.test(x = a$MORTAMT1, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+kable(left_join(t2019, t2018, by = "City") %>% 
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019))
+rm(a, b, City, t2017, t2018, t2019)
+```
+
+
+### Average Gross Rent
+
+```{r}
+leveneTest(RENTGRS ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2017))
+leveneTest(RENTGRS ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2018))
+leveneTest(RENTGRS ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2019))
+
+a <- filter(IPUMSHHwt, YEAR == 2017)
+b <- as.data.frame(DTK.test(x = a$RENTGRS, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+a <- filter(IPUMSHHwt, YEAR == 2018)
+b <- as.data.frame(DTK.test(x = a$RENTGRS, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+a <- filter(IPUMSHHwt, YEAR == 2019)
+b <- as.data.frame(DTK.test(x = a$RENTGRS, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+kable(left_join(t2019, t2018, by = "City") %>% 
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019))
+rm(a, b, City, t2017, t2018, t2019)
+```
+
+
+### Average Travel Time to Work
+
+```{r}
+leveneTest(TRANTIME ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2017))
+leveneTest(TRANTIME ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2018))
+leveneTest(TRANTIME ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2019))
+
+a <- filter(IPUMSPwt, YEAR == 2017)
+b <- as.data.frame(DTK.test(x = a$TRANTIME, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+a <- filter(IPUMSPwt, YEAR == 2018)
+b <- as.data.frame(DTK.test(x = a$TRANTIME, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+a <- filter(IPUMSPwt, YEAR == 2019)
+b <- as.data.frame(DTK.test(x = a$TRANTIME, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+kable(left_join(t2019, t2018, by = "City") %>% 
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019))
+rm(a, b, City, t2017, t2018, t2019)
+```
+
+
+### Average House Value
+
+```{r}
+leveneTest(VALUEH ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2017))
+leveneTest(VALUEH ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2018))
+leveneTest(VALUEH ~ CITYNAME, weights = HHWT, data = filter(IPUMSHH, YEAR == 2019))
+
+a <- filter(IPUMSHHwt, YEAR == 2017)
+b <- as.data.frame(DTK.test(x = a$VALUEH, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+a <- filter(IPUMSHHwt, YEAR == 2018)
+b <- as.data.frame(DTK.test(x = a$VALUEH, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+a <- filter(IPUMSHHwt, YEAR == 2019)
+b <- as.data.frame(DTK.test(x = a$VALUEH, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+kable(left_join(t2019, t2018, by = "City") %>% 
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019))
+rm(a, b, City, t2017, t2018, t2019)
+```
+
+
+### Average Age
+
+```{r}
+leveneTest(AGE ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2017))
+leveneTest(AGE ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2018))
+leveneTest(AGE ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2019))
+
+a <- filter(IPUMSPwt, YEAR == 2017)
+b <- as.data.frame(DTK.test(x = a$AGE, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+a <- filter(IPUMSPwt, YEAR == 2018)
+b <- as.data.frame(DTK.test(x = a$AGE, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+a <- filter(IPUMSPwt, YEAR == 2019)
+b <- as.data.frame(DTK.test(x = a$AGE, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+kable(left_join(t2019, t2018, by = "City") %>% 
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019))
+rm(a, b, City, t2017, t2018, t2019)
+```
+
+
+### Average Usual Hours Per Week
+
+```{r}
+leveneTest(UHRSWORK ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2017))
+leveneTest(UHRSWORK ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2018))
+leveneTest(UHRSWORK ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2019))
+
+a <- filter(IPUMSPwt, YEAR == 2017)
+b <- as.data.frame(DTK.test(x = a$UHRSWORK, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+a <- filter(IPUMSPwt, YEAR == 2018)
+b <- as.data.frame(DTK.test(x = a$UHRSWORK, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+a <- filter(IPUMSPwt, YEAR == 2019)
+b <- as.data.frame(DTK.test(x = a$UHRSWORK, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+kable(left_join(t2019, t2018, by = "City") %>% 
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019))
+rm(a, b, City, t2017, t2018, t2019)
+```
+
+
+### Proportion of Available-to-Work 
+
+```{r}
+leveneTest(AVAILABLE ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2017))
+leveneTest(AVAILABLE ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2018))
+leveneTest(AVAILABLE ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2019))
+
+b <- as.data.frame(TukeyHSD(aov(AVAILABLE ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2017)))$CITYNAME)
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'lwr' < 0 & b$'upr' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+b <- as.data.frame(TukeyHSD(aov(AVAILABLE ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2018)))$CITYNAME)
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'lwr' < 0 & b$'upr' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+b <- as.data.frame(TukeyHSD(aov(AVAILABLE ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2019)))$CITYNAME)
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'lwr' < 0 & b$'upr' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+kable(left_join(t2019, t2018, by = "City") %>% 
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019))
+rm(b, City, t2017, t2018, t2019)
+```
+
+
+### Proportion of Available-and-Looking-to-Work
+
+```{r}
+leveneTest(AVAILLOOK ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2017))
+leveneTest(AVAILLOOK ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2018))
+leveneTest(AVAILLOOK ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2019))
+
+b <- as.data.frame(TukeyHSD(aov(AVAILLOOK ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2017)))$CITYNAME)
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'lwr' < 0 & b$'upr' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+b <- as.data.frame(TukeyHSD(aov(AVAILLOOK ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2018)))$CITYNAME)
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'lwr' < 0 & b$'upr' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+b <- as.data.frame(TukeyHSD(aov(AVAILLOOK ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2019)))$CITYNAME)
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'lwr' < 0 & b$'upr' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+kable(left_join(t2019, t2018, by = "City") %>% 
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019))
+rm(b, City, t2017, t2018, t2019)
+```
+
+
+### Proportion of Education Attainment Level
+
+```{r}
+## Finished up to high school
+leveneTest(HS ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2017))
+leveneTest(HS ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2018))
+leveneTest(HS ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2019))
+
+a <- filter(IPUMSPwt, YEAR == 2017)
+b <- as.data.frame(DTK.test(x = a$HS, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+a <- filter(IPUMSPwt, YEAR == 2018)
+b <- as.data.frame(DTK.test(x = a$HS, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+a <- filter(IPUMSPwt, YEAR == 2019)
+b <- as.data.frame(DTK.test(x = a$HS, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+kable(left_join(t2019, t2018, by = "City") %>% 
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019))
+rm(a, b, City, t2017, t2018, t2019)
+
+
+## Some college
+leveneTest(COL ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2017))
+leveneTest(COL ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2018))
+leveneTest(COL ~ CITYNAME, weights = PERWT, data = filter(IPUMSP, YEAR == 2019))
+
+a <- filter(IPUMSPwt, YEAR == 2017)
+b <- as.data.frame(DTK.test(x = a$COL, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+a <- filter(IPUMSPwt, YEAR == 2018)
+b <- as.data.frame(DTK.test(x = a$COL, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+a <- filter(IPUMSPwt, YEAR == 2019)
+b <- as.data.frame(DTK.test(x = a$COL, f = a$CITYNAME, a = 0.05)[[2]])
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 15, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+kable(left_join(t2019, t2018, by = "City") %>% 
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019))
+rm(a, b, City, t2017, t2018, t2019)
+```
+
+
+### Summarized Tables
+
+```{r eval = FALSE}
+## HHINCOME
+IPUMS_HHINCOME <- IPUMSHH %>% 
+  group_by(YEAR, CITYNAME) %>% 
+  summarize(HHINCOME_AVG = weighted.mean(HHINCOME, HHWT, na.rm = FALSE))
+
+## PINCOME
+IPUMS_PINCOME <- IPUMSP %>% 
+  group_by(YEAR, CITYNAME) %>% 
+  summarize(PINCOME_AVG = weighted.mean(INCTOT, PERWT, na.rm = FALSE))
+
+## FAMSIZE
+IPUMS_FAMSIZE <- IPUMSHH %>% 
+  group_by(YEAR, CITYNAME) %>% 
+  summarize(FAMSIZE_AVG = weighted.mean(FAMSIZE, HHWT, na.rm = FALSE))
+
+## MORTAMT1
+IPUMS_MORTAMT1 <- IPUMSHH %>% 
+  group_by(YEAR, CITYNAME) %>% 
+  summarize(MORTAMT1_AVG = weighted.mean(MORTAMT1, HHWT, na.rm = FALSE))
+
+## RENTGRS
+IPUMS_RENTGRS <- IPUMSHH %>% 
+  group_by(YEAR, CITYNAME) %>% 
+  summarize(RENTGRS_AVG = weighted.mean(RENTGRS, HHWT, na.rm = FALSE))
+
+## TRANTIME
+IPUMS_TRANTIME <- IPUMSP%>% 
+  group_by(YEAR, CITYNAME) %>% 
+  summarize(TRANTIME_AVG = weighted.mean(TRANTIME, PERWT, na.rm = FALSE))
+
+## VALUEH
+IPUMS_VALUEH <- IPUMSHH %>% 
+  group_by(YEAR, CITYNAME) %>% 
+  summarize(VALUEH_AVG = weighted.mean(VALUEH, HHWT, na.rm = FALSE))
+
+## AGE
+IPUMS_AGE <- IPUMSP %>%
+  group_by(YEAR, CITYNAME) %>% 
+  summarize(AGE_AVG = weighted.mean(AGE, PERWT, na.rm = FALSE))
+
+## UHRSWORK
+IPUMS_UHRSWORK <- IPUMSP %>% 
+  group_by(YEAR, CITYNAME) %>% 
+  summarize(UHRSWORK_AVG = weighted.mean(UHRSWORK, PERWT, na.rm = FALSE))
+
+## AVAILABLE
+IPUMS_AVAILABLE <- IPUMSP %>% 
+  group_by(YEAR, CITYNAME, AVAILBLE) %>% 
+  summarize(n = n(), WT = sum(PERWT)) %>% 
+  mutate(wtN = n * WT) 
+
+IPUMS_AVAILABLE2 <- IPUMS_AVAILABLE %>% 
+  ungroup() %>% 
+  group_by(YEAR, CITYNAME) %>% 
+  summarize(total = sum(wtN))
+
+IPUMS_AVAILABLE <- left_join(IPUMS_AVAILABLE, IPUMS_AVAILABLE2, by = c("YEAR", "CITYNAME")) %>% 
+  filter(AVAILBLE == 4) %>%
+  mutate(Prop_AVAIL = wtN/total) %>% 
+  ungroup() %>% 
+  select(YEAR, CITYNAME, Prop_AVAIL)
+rm(IPUMS_AVAILABLE2)
+
+## AVAILLOOK
+IPUMS_AVAILLOOK <- IPUMSP %>% 
+  group_by(YEAR, CITYNAME, AVAILBLE, LOOKING) %>% 
+  summarize(n = n(), WT = sum(PERWT)) %>% 
+  mutate(wtN = n * WT) 
+
+IPUMS_AVAILLOOK2 <- IPUMS_AVAILLOOK %>% 
+  ungroup() %>% 
+  group_by(YEAR, CITYNAME) %>% 
+  summarize(total = sum(wtN))
+
+IPUMS_AVAILLOOK <- left_join(IPUMS_AVAILLOOK, IPUMS_AVAILLOOK2, by = c("YEAR", "CITYNAME")) %>% 
+  filter(AVAILBLE == 4, LOOKING == 2) %>%
+  mutate(Prop_AVAILnLOOK = wtN/total) %>% 
+  ungroup() %>%   
+  select(YEAR, CITYNAME, Prop_AVAILnLOOK)
+rm(IPUMS_AVAILLOOK2)
+
+## EDUC
+IPUMS_EDUC <- IPUMSP %>% 
+  group_by(YEAR, CITYNAME, EDUC2) %>% 
+  summarize(n = n(), WT = sum(PERWT)) %>% 
+  mutate(wtN = n * WT)
+
+IPUMS_EDUC2 <- IPUMS_EDUC %>% 
+  ungroup() %>% 
+  group_by(YEAR, CITYNAME) %>% 
+  summarize(total = sum(wtN))
+
+IPUMS_EDUC <- left_join(IPUMS_EDUC, IPUMS_EDUC2, by = c("YEAR", "CITYNAME")) %>% 
+  mutate(Prop = wtN/total) %>% 
+  ungroup() %>%   
+  select(YEAR, CITYNAME, EDUC2, Prop)
+rm(IPUMS_EDUC2)
+
+IPUMS_HS <- IPUMS_EDUC %>% 
+  filter(EDUC2 == "HS")
+IPUMS_COL <- IPUMS_EDUC %>% 
+  filter(EDUC2 == "Some College")
+```
+
+
+
+
+
+
+## LAUS
+
+### Labor Force
+
+```{r}
+leveneTest(Civilian.Labor.Force ~ Area, data = filter(LAUS, Year == 2017))
+leveneTest(Civilian.Labor.Force ~ Area, data = filter(LAUS, Year == 2018))
+leveneTest(Civilian.Labor.Force ~ Area, data = filter(LAUS, Year == 2019))
+leveneTest(Civilian.Labor.Force ~ Area, data = filter(LAUS, Year == 2020))
+
+a <- filter(LAUS, Year == 2017)
+b <- as.data.frame(DTK.test(x = a$Civilian.Labor.Force, f = a$Area, a = 0.05)[[2]])
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 19, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+a <- filter(LAUS, Year == 2018)
+b <- as.data.frame(DTK.test(x = a$Civilian.Labor.Force, f = a$Area, a = 0.05)[[2]])
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 19, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+a <- filter(LAUS, Year == 2019)
+b <- as.data.frame(DTK.test(x = a$Civilian.Labor.Force, f = a$Area, a = 0.05)[[2]])
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 19, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+a <- filter(LAUS, Year == 2020)
+b <- as.data.frame(DTK.test(x = a$Civilian.Labor.Force, f = a$Area, a = 0.05)[[2]])
+City <- rownames(b)
+t2020 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 19, str_length(City)),
+    Rank2020 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2020)
+
+kable(left_join(t2020, t2019, by = "City") %>% 
+  left_join(t2018, by = "City") %>%      
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019, Rank2020))
+rm(a, b, City, t2017, t2018, t2019, t2020)
+```
+
+
+### Employment
+
+```{r}
+leveneTest(Employment ~ Area, data = filter(LAUS, Year == 2017))
+leveneTest(Employment ~ Area, data = filter(LAUS, Year == 2018))
+leveneTest(Employment ~ Area, data = filter(LAUS, Year == 2019))
+leveneTest(Employment ~ Area, data = filter(LAUS, Year == 2020))
+
+a <- filter(LAUS, Year == 2017)
+b <- as.data.frame(DTK.test(x = a$Employment, f = a$Area, a = 0.05)[[2]])
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 19, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+a <- filter(LAUS, Year == 2018)
+b <- as.data.frame(DTK.test(x = a$Employment, f = a$Area, a = 0.05)[[2]])
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 19, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+a <- filter(LAUS, Year == 2019)
+b <- as.data.frame(DTK.test(x = a$Employment, f = a$Area, a = 0.05)[[2]])
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 19, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+a <- filter(LAUS, Year == 2020)
+b <- as.data.frame(DTK.test(x = a$Employment, f = a$Area, a = 0.05)[[2]])
+City <- rownames(b)
+t2020 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 19, str_length(City)),
+    Rank2020 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2020)
+
+kable(left_join(t2020, t2019, by = "City") %>% 
+  left_join(t2018, by = "City") %>%      
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019, Rank2020))
+rm(a, b, City, t2017, t2018, t2019, t2020)
+```
+
+
+### Unemployment Rate
+
+```{r}
+leveneTest(Unemployment.Rate ~ Area, data = filter(LAUS, Year == 2017))
+leveneTest(Unemployment.Rate ~ Area, data = filter(LAUS, Year == 2018))
+leveneTest(Unemployment.Rate ~ Area, data = filter(LAUS, Year == 2019))
+leveneTest(Unemployment.Rate ~ Area, data = filter(LAUS, Year == 2020))
+
+a <- filter(LAUS, Year == 2017)
+b <- as.data.frame(DTK.test(x = a$Unemployment.Rate, f = a$Area, a = 0.05)[[2]])
+City <- rownames(b)
+t2017 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 19, str_length(City)),
+    Rank2017 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2017)
+
+a <- filter(LAUS, Year == 2018)
+b <- as.data.frame(DTK.test(x = a$Unemployment.Rate, f = a$Area, a = 0.05)[[2]])
+City <- rownames(b)
+t2018 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 19, str_length(City)),
+    Rank2018 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2018)
+
+a <- filter(LAUS, Year == 2019)
+b <- as.data.frame(DTK.test(x = a$Unemployment.Rate, f = a$Area, a = 0.05)[[2]])
+City <- rownames(b)
+t2019 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 19, str_length(City)),
+    Rank2019 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2019)
+
+a <- filter(LAUS, Year == 2020)
+b <- as.data.frame(DTK.test(x = a$Unemployment.Rate, f = a$Area, a = 0.05)[[2]])
+City <- rownames(b)
+t2020 <- b %>% 
+  mutate(Reject = ifelse((b$'Lower CI' < 0 & b$'Upper CI' > 0), FALSE, TRUE)) %>% 
+  cbind(City) %>% 
+  filter(str_detect(rownames(b), "St. Cloud, MN")) %>% 
+  arrange(Diff) %>% 
+  mutate(
+    City = substr(City, 19, str_length(City)),
+    Rank2020 = case_when(
+      (Reject == TRUE  & Diff > 0)  ~ paste0("-", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff > 0)  ~ paste0("-", as.character(row_number())),
+      (Reject == TRUE  & Diff <= 0) ~ paste0("+", as.character(row_number()), "*"),
+      (Reject == FALSE & Diff <= 0) ~ paste0("+", as.character(row_number()))
+    )
+    ) %>% 
+  select(City, Rank2020)
+
+kable(left_join(t2020, t2019, by = "City") %>% 
+  left_join(t2018, by = "City") %>%      
+  left_join(t2017, by = "City") %>% 
+  select(City, Rank2017, Rank2018, Rank2019, Rank2020))
+rm(a, b, City, t2017, t2018, t2019, t2020)
+```
+
+
+### Summarized Tables
+
+```{r eval = FALSE}
+MeanFunction <- function(dataset, x, y, z) {
+  dataset %>%
+    group_by_(x, y) %>%
+    summarize_(Mean = paste0("mean(", z, ", na.rm = TRUE)")) #note underscore after summarize
+}
+LAUS_LF <- MeanFunction(LAUS, "Year", "Area", 'Civilian.Labor.Force')
+LAUS_EMP <- MeanFunction(LAUS, "Year", "Area", 'Employment')
+LAUS_UM <- MeanFunction(LAUS, "Year", "Area", 'Unemployment.Rate')
+
+write.csv(LAUS_LF, "LAUS_LF.csv")
+write.csv(LAUS_EMP, "LAUS_EMP.csv")
+write.csv(LAUS_UM, "LAUS_UM.csv")
+```
+
+
+
+
+
+
+
+## OEWS
+
+### Prep
+
+10 Cities of interest table
+
+```{r}
+OEWS10 <- OEWS %>% 
+  filter(
+    AREA_NAME %in% c(
+      "St. Cloud, MN", "Rochester, MN", "Duluth, MN-WI", "Mankato-North Mankato, MN", "Fargo, ND-MN", 
+      "Grand Forks, ND-MN", "Eau Claire, WI", "La Crosse-Onalaska, WI-MN", "Dubuque, IA MSA", "Cedar Rapids, IA MSA")
+  )
+```
+
+
+#### Major Occupations
+
+```{r}
+OCCList <- unique(filter(OEWS10, OCC_GROUP == "major")$OCC_TITLE)
+OEWSMajor <- filter(OEWS, OCC_TITLE %in% OCCList)
+table(OEWSMajor$OCC_TITLE)
+```
+
+
+### Occupation Major Classification
+
+```{r results='asis'}
+for (i in c(1:7, 9:22)) {
+  print(OCCList[i])
+  a <- filter(OEWS10, YEAR == 2017 & OCC_TITLE == OCCList[i])
+  pR2017 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2017 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  a <- filter(OEWS10, YEAR == 2018 & OCC_TITLE == OCCList[i])
+  pR2018 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2018 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  a <- filter(OEWS10, YEAR == 2019 & OCC_TITLE == OCCList[i])
+  pR2019 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2019 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  a <- filter(OEWS10, YEAR == 2020 & OCC_TITLE == OCCList[i])
+  pR2020 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2020 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  print(kable(cbind(pR2017, pR2018, pR2019, pR2020)))
+  print(kable(cbind(pW2017, pW2018, pW2019, pW2020)))
+  cat("\n\n\n")
+  rm(pR2017, pR2018, pR2019, pR2020, pW2017, pW2018, pW2019, pW2020)
+}
+
+print(paste(OCCList[8], "/", OCCList[23]))
+  a <- filter(OEWS10, YEAR == 2017 & OCC_TITLE == OCCList[8])
+  pR2017 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2017 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  a <- filter(OEWS10, YEAR == 2018 & OCC_TITLE == OCCList[8])
+  pR2018 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2018 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  a <- filter(OEWS10, YEAR == 2019 & OCC_TITLE == OCCList[23])
+  pR2019 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2019 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  a <- filter(OEWS10, YEAR == 2020 & OCC_TITLE == OCCList[23])
+  pR2020 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2020 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  kable(cbind(pR2017, pR2018, pR2019, pR2020))
+  kable(cbind(pW2017, pW2018, pW2019, pW2020))
+  rm(pR2017, pR2018, pR2019, pR2020, pW2017, pW2018, pW2019, pW2020)
+```
+
+
+
+### Noticeable Occupation Sub-Classification
+
+LOCQUOTIENT
+> 1 : More than US average
+1 < : Less than US average
+
+#### Low Quotient List: Lowest 25% of LOWQUO & St. Cloud Share at least 0.1% (Around TOT_EMP = 100)
+
+```{r results='asis'}
+OEWS_lowloc <- OEWS %>%
+  filter(AREA_NAME == "St. Cloud, MN" & YEAR %in% c(2017, 2018, 2019, 2020) & OCC_GROUP != "major") %>%
+  filter(LOCQUO <= quantile(OEWS$LOCQUO, na.rm = TRUE, 0.25) & JOBS_1000 >= 1) %>% 
+  group_by(OCC_TITLE) %>% 
+  summarize(n = n()) %>% 
+  filter(n == 4)
+OEWS_lowloc <- OEWS_lowloc$OCC_TITLE
+OEWS_lowloc
+
+for (i in 1:length(OEWS_lowloc)) {
+  print(OEWS_lowloc[i])
+  a <- filter(OEWS10, YEAR == 2017 & OCC_TITLE == OEWS_lowloc[i])
+  pR2017 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2017 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  a <- filter(OEWS10, YEAR == 2018 & OCC_TITLE == OEWS_lowloc[i])
+  pR2018 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2018 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  a <- filter(OEWS10, YEAR == 2019 & OCC_TITLE == OEWS_lowloc[i])
+  pR2019 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2019 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  a <- filter(OEWS10, YEAR == 2020 & OCC_TITLE == OEWS_lowloc[i])
+  pR2020 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2020 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  print(kable(cbind(pR2017, pR2018, pR2019, pR2020)))
+  print(kable(cbind(pW2017, pW2018, pW2019, pW2020)))
+  cat("\n\n\n")
+  rm(pR2017, pR2018, pR2019, pR2020, pW2017, pW2018, pW2019, pW2020)
+}
+```
+
+
+#### High Quotient List: Lowest 25% of LOWQUO & St. Cloud Share at least 0.1% (Around TOT_EMP = 100)
+
+```{r results='asis'}
+OEWS_highloc <- OEWS %>%
+  filter(AREA_NAME == "St. Cloud, MN" & YEAR %in% c(2017, 2018, 2019, 2020) & OCC_GROUP != "major") %>%
+  filter(LOCQUO >= quantile(OEWS$LOCQUO, na.rm = TRUE, 0.75) & JOBS_1000 >= 1) %>% 
+  group_by(OCC_TITLE) %>% 
+  summarize(n = n()) %>% 
+  filter(n == 4)
+OEWS_highloc <- OEWS_highloc$OCC_TITLE
+OEWS_highloc
+
+for (i in c(1:10, 12, 14:19)) {
+  print(OEWS_highloc[i])
+  a <- filter(OEWS10, YEAR == 2017 & OCC_TITLE == OEWS_highloc[i])
+  pR2017 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2017 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  a <- filter(OEWS10, YEAR == 2018 & OCC_TITLE == OEWS_highloc[i])
+  pR2018 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2018 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  a <- filter(OEWS10, YEAR == 2019 & OCC_TITLE == OEWS_highloc[i])
+  pR2019 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2019 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  a <- filter(OEWS10, YEAR == 2020 & OCC_TITLE == OEWS_highloc[i])
+  pR2020 <- pvalue(wilcoxsign_test(a$JOBS_1000 ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$JOBS_1000, nrow(a)), distribution = exact()))
+  pW2020 <- pvalue(wilcoxsign_test(a$A_MEAN ~ rep(filter(a, AREA_NAME == "St. Cloud, MN")$A_MEAN, nrow(a)), distribution = exact()))
+  print(kable(cbind(pR2017, pR2018, pR2019, pR2020)))
+  print(kable(cbind(pW2017, pW2018, pW2019, pW2020)))
+  cat("\n\n\n")
+  rm(pR2017, pR2018, pR2019, pR2020, pW2017, pW2018, pW2019, pW2020)
+}
+
+## Pairwise Zero - No result (average)
+OEWS_highloc[1]
+OEWS_highloc[13]
+```
+
